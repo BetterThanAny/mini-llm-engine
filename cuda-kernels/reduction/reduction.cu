@@ -131,16 +131,18 @@ __global__ void reduce_v4_shfl(const float* __restrict__ g_in,
     sdata[tid] = acc;
     __syncthreads();
 
-    // tree reduction down to 32 threads
+    // tree reduction down to 64 elements (loop stops when s==32 since 32>32 is false)
     for (unsigned s = blockDim.x >> 1; s > 32; s >>= 1) {
         if (tid < s)
             sdata[tid] += sdata[tid + s];
         __syncthreads();
     }
 
-    // final warp: use shuffle, no __syncthreads needed
+    // final warp: combine the remaining two 32-element groups via shuffle.
+    // Requires blockDim >= 64 (guaranteed by THREADS=256 above).
     if (tid < 32) {
-        float val = sdata[tid];
+        // fold sdata[32..63] into sdata[0..31] before the warp reduction
+        float val = sdata[tid] + sdata[tid + 32];
         val = warp_reduce(val);
         if (tid == 0) g_out[blockIdx.x] = val;
     }

@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cmath>
+#include <string>
 #include <cuda_runtime.h>
 #include <cublas_v2.h>
 
