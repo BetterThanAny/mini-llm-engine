@@ -1,0 +1,54 @@
+# Build artifacts
+build/
+*/build/
+*.o
+*.a
+*.so
+*.out
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+install_manifest.txt
+
+# CUDA
+*.ptx
+*.cubin
+*.fatbin
+
+# Binaries (only at build output paths, not source dirs)
+build/vector_add
+build/reduction
+build/transpose
+build/gemm
+build/llm_engine
+*/build/vector_add
+*/build/reduction
+*/build/transpose
+*/build/gemm
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# Model weights (large files)
+*.gguf
+*.bin
+*.safetensors
+
+# Benchmark outputs (keep CSV, ignore raw logs)
+benchmarks/*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/settings.json
+.idea/
+*.swp
