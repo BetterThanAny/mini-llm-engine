@@ -1,1 +1,7 @@
 kernel,variant,size,block_size,time_ms,throughput,notes
+# transpose results — fill after running ./build/transpose/transpose
+# transpose,naive,4096,32,<time_ms>,<GB/s>,bandwidth_GBs
+# transpose,tiled,4096,32,<time_ms>,<GB/s>,bandwidth_GBs
+# gemm results — fill after running ./build/gemm/gemm
+# gemm,naive,2048,32,<time_ms>,<TFLOPS>,TFLOPS
+# gemm,cublas,2048,N/A,<time_ms>,<TFLOPS>,TFLOPS
