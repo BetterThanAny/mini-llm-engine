@@ -1,0 +1,9 @@
+reduction,v1_naive,16777216,256,0.6398,105.30 GB/s,speedup_vs_v1=1.00x 
+reduction,v2_seq,16777216,256,0.4397,153.22 GB/s,speedup_vs_v1=1.46x 
+reduction,v3_fad,16777216,256,0.2310,291.06 GB/s,speedup_vs_v1=2.77x 
+reduction,v4_shfl,16777216,256,0.1608,418.24 GB/s,speedup_vs_v1=3.98x 
+2026-04-12T19:34:22,mini-llm-engine-cuda,128,128,24.1936,91.4953,7095.04
+2026-04-12T19:38:03,mini-llm-engine-cuda-int8,128,128,192.731,5.22868,122884
+2026-04-12T19:38:42,mini-llm-engine-cuda-bs2,128,128,50.1225,95.704,13678.4
+2026-04-12T19:39:35,mini-llm-engine-cuda-bs4,128,128,99.5305,95.112,27730.3
+2026-04-12T19:41:11,mini-llm-engine-cuda-bs8,128,128,198.502,93.0441,55911

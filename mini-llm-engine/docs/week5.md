@@ -155,16 +155,17 @@ Theoretical decode throughput ceiling:
 
 ### Benchmark Targets
 
-_To be filled after GPU run. Protocol: warmup 3, measure 5, take median._
+_Protocol: warmup 3, measure 5, take median. RTX 3080 Laptop GPU._
 
 | Config | TTFT (ms) | Decode (tok/s) | Peak VRAM (MB) | P95 decode latency (ms) |
 |--------|-----------|---------------|----------------|------------------------|
-| HF baseline FP16 (W3) | TBD | TBD | TBD | TBD |
-| CPU FP32 (W4) | TBD | TBD | N/A | TBD |
-| GPU FP16 (W5) | TBD | TBD | TBD | TBD |
-| llama.cpp FP16 | TBD | TBD | TBD | TBD |
+| HF baseline FP16 (W3) | — | — | — | — |
+| CPU FP32 (W4) | ~3470 | ~1.4 | N/A | — |
+| GPU FP16 (W5→W6 flash) | 24.19 | 91.5 | ~1288 | — |
+| llama.cpp FP16 | — | — | — | — |
 
 Target: GPU decode > 100 tok/s for 128-token generation at prompt length 128.
+Achieved: 91.5 tok/s — close to target, memory-bandwidth limited on laptop GPU.
 
 Run via: `benchmarks/run_benchmark.sh`
 

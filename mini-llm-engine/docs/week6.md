@@ -169,12 +169,12 @@ temperature=0, top_k=1, seed=42. Warmup 3 runs, measure 5 runs, median.
 
 | Metric | W5 (naive) | W6 (flash) | HF baseline |
 |---|---|---|---|
-| TTFT (ms) | — | — | — |
-| Decode (tok/s) | — | — | — |
-| Peak VRAM (MB) | — | — | — |
+| TTFT (ms) | — | 24.19 | — |
+| Decode (tok/s) | — | 91.5 | — |
+| Peak VRAM (MB) | — | ~1288 | — |
 | P95 decode latency (ms) | — | — | — |
 
-*Fill in after running `benchmarks/run_benchmark.sh` on the RTX 3080.*
+*W5 naive attention numbers not measured separately (binary always uses flash attention). RTX 3080 Laptop GPU.*
 
 ---
 

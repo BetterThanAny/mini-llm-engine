@@ -282,10 +282,15 @@ int main(int argc, char** argv) {
     bool use_gpu = (device_str == "cuda");
     if (use_gpu) {
         int n = 0;
-        cudaGetDeviceCount(&n);
-        if (n == 0) {
-            fprintf(stderr, "Warning: --device cuda requested but no CUDA device found; falling back to CPU.\n");
+        cudaError_t err = cudaGetDeviceCount(&n);
+        if (err != cudaSuccess || n == 0) {
+            fprintf(stderr, "Warning: --device cuda requested but no CUDA device found (n=%d, err=%d: %s); falling back to CPU.\n",
+                    n, (int)err, cudaGetErrorString(err));
             use_gpu = false;
+        } else {
+            cudaDeviceProp prop;
+            cudaGetDeviceProperties(&prop, 0);
+            printf("[CUDA] Device 0: %s  (compute %d.%d)\n", prop.name, prop.major, prop.minor);
         }
     }
     bool use_int8 = (quant_str == "int8");

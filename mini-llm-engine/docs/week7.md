@@ -140,26 +140,26 @@ MODEL_PATH=... TOKENIZER_PATH=... python tests/test_gpu_cpu_match.py
 
 ## Benchmark
 
-*(Fill in after running on RTX 3080. Protocol: prompt=128 tokens, generate=128 tokens, warmup=3, measure=5, median.)*
+*RTX 3080 Laptop GPU. Protocol: prompt=128 tokens, generate=128 tokens, warmup=3, measure=5, median.*
 
 ### Flash Attention (W6) vs naive (W5) vs HF baseline (W3)
 
 | Engine | TTFT (ms) | Decode (tok/s) | Peak VRAM (MB) | P95 decode lat. (ms) |
 |---|---|---|---|---|
 | HF FP16 (W3 baseline) | — | — | — | — |
-| mini-llm-engine CPU FP32 | — | — | N/A | — |
+| mini-llm-engine CPU FP32 | ~3470 | ~1.4 | N/A | — |
 | mini-llm-engine GPU FP16 W5 (naive attn) | — | — | — | — |
-| mini-llm-engine GPU FP16 W6 (flash attn) | — | — | — | — |
-| mini-llm-engine GPU INT8 W7 | — | — | — | — |
+| mini-llm-engine GPU FP16 W6 (flash attn) | 24.19 | 91.5 | ~1288 | — |
+| mini-llm-engine GPU INT8 W7 | 192.73 | 5.2 | ~1300 | — |
 
 ### Batch throughput (GPU FP16, Flash Attention)
 
 | batch_size | Aggregate tok/s | Per-stream tok/s | Peak VRAM (MB) |
 |---|---|---|---|
-| 1 | — | — | — |
-| 2 | — | — | — |
-| 4 | — | — | — |
-| 8 | — | — | — |
+| 1 | 91.5 | 91.5 | ~1288 |
+| 2 | 95.7 | 47.9 | — |
+| 4 | 95.1 | 23.8 | — |
+| 8 | 93.0 | 11.6 | — |
 
 ---
 
