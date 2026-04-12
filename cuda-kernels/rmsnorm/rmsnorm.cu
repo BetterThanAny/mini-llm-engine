@@ -184,18 +184,144 @@ static void check_correctness(const float* ref, const float* got,
            label, max_err, max_err < 1e-5f ? "PASS" : "FAIL !!!");
 }
 
+// ── Dump mode (invoked by test_correctness.py) ───────────────────────────────
+// Reads raw binary input/weight, runs v2_warp, writes raw binary output.
+// Supports --dtype fp32|fp16 (fp16: input/weight/output are __half arrays).
+
+static void run_dump(int rows, int cols, bool use_fp16,
+                     const char* in_path, const char* wt_path,
+                     const char* out_path) {
+    const float EPS = 1e-5f;
+    const size_t elem = (size_t)rows * cols;
+
+    if (use_fp16) {
+        using T = __half;
+        size_t bytes  = elem * sizeof(T);
+        size_t wbytes = (size_t)cols * sizeof(T);
+        T* h_x = (T*)malloc(bytes);
+        T* h_w = (T*)malloc(wbytes);
+        T* h_y = (T*)malloc(bytes);
+
+        FILE* f;
+        f = fopen(in_path, "rb");
+        if (!f) { fprintf(stderr, "Cannot open %s\n", in_path); exit(1); }
+        if (fread(h_x, sizeof(T), elem, f) != elem) { fprintf(stderr, "Short read %s\n", in_path); exit(1); }
+        fclose(f);
+        f = fopen(wt_path, "rb");
+        if (!f) { fprintf(stderr, "Cannot open %s\n", wt_path); exit(1); }
+        if (fread(h_w, sizeof(T), (size_t)cols, f) != (size_t)cols) { fprintf(stderr, "Short read %s\n", wt_path); exit(1); }
+        fclose(f);
+
+        T *d_x, *d_w, *d_y;
+        CUDA_CHECK(cudaMalloc(&d_x, bytes));
+        CUDA_CHECK(cudaMalloc(&d_w, wbytes));
+        CUDA_CHECK(cudaMalloc(&d_y, bytes));
+        CUDA_CHECK(cudaMemcpy(d_x, h_x, bytes,  cudaMemcpyHostToDevice));
+        CUDA_CHECK(cudaMemcpy(d_w, h_w, wbytes, cudaMemcpyHostToDevice));
+
+        // Reuse v2_warp logic via a fp16 wrapper (accumulate in fp32)
+        // Using v1_naive cast stub for fp16: accumulate in fp32
+        // Launch v1 naive adapted for fp16: we convert in/out on-the-fly
+        // For correctness testing, launch with block=128, smem=4 warps
+        // NOTE: v2_warp kernel is FP32-only; we run on FP32 copy then convert.
+        float* h_xf = (float*)malloc(elem * sizeof(float));
+        float* h_wf = (float*)malloc((size_t)cols * sizeof(float));
+        float* h_yf = (float*)malloc(elem * sizeof(float));
+        for (size_t i = 0; i < elem;          i++) h_xf[i] = __half2float(h_x[i]);
+        for (int    i = 0; i < cols;           i++) h_wf[i] = __half2float(h_w[i]);
+
+        float *d_xf, *d_wf, *d_yf;
+        CUDA_CHECK(cudaMalloc(&d_xf, elem * sizeof(float)));
+        CUDA_CHECK(cudaMalloc(&d_wf, (size_t)cols * sizeof(float)));
+        CUDA_CHECK(cudaMalloc(&d_yf, elem * sizeof(float)));
+        CUDA_CHECK(cudaMemcpy(d_xf, h_xf, elem * sizeof(float),          cudaMemcpyHostToDevice));
+        CUDA_CHECK(cudaMemcpy(d_wf, h_wf, (size_t)cols * sizeof(float),  cudaMemcpyHostToDevice));
+
+        rmsnorm_v2_warp<<<rows, 128, 4 * sizeof(float)>>>(d_xf, d_wf, d_yf, cols, EPS);
+        CUDA_CHECK(cudaDeviceSynchronize());
+        CUDA_CHECK(cudaMemcpy(h_yf, d_yf, elem * sizeof(float), cudaMemcpyDeviceToHost));
+
+        // Convert fp32 result back to fp16 for output
+        for (size_t i = 0; i < elem; i++) h_y[i] = __float2half(h_yf[i]);
+
+        f = fopen(out_path, "wb");
+        if (!f) { fprintf(stderr, "Cannot write %s\n", out_path); exit(1); }
+        fwrite(h_y, sizeof(T), elem, f);
+        fclose(f);
+
+        CUDA_CHECK(cudaFree(d_x)); CUDA_CHECK(cudaFree(d_w)); CUDA_CHECK(cudaFree(d_y));
+        CUDA_CHECK(cudaFree(d_xf)); CUDA_CHECK(cudaFree(d_wf)); CUDA_CHECK(cudaFree(d_yf));
+        free(h_x); free(h_w); free(h_y); free(h_xf); free(h_wf); free(h_yf);
+    } else {
+        size_t bytes  = elem * sizeof(float);
+        size_t wbytes = (size_t)cols * sizeof(float);
+        float* h_x = (float*)malloc(bytes);
+        float* h_w = (float*)malloc(wbytes);
+        float* h_y = (float*)malloc(bytes);
+
+        FILE* f;
+        f = fopen(in_path, "rb");
+        if (!f) { fprintf(stderr, "Cannot open %s\n", in_path); exit(1); }
+        if (fread(h_x, sizeof(float), elem, f) != elem) { fprintf(stderr, "Short read %s\n", in_path); exit(1); }
+        fclose(f);
+        f = fopen(wt_path, "rb");
+        if (!f) { fprintf(stderr, "Cannot open %s\n", wt_path); exit(1); }
+        if (fread(h_w, sizeof(float), (size_t)cols, f) != (size_t)cols) { fprintf(stderr, "Short read %s\n", wt_path); exit(1); }
+        fclose(f);
+
+        float *d_x, *d_w, *d_y;
+        CUDA_CHECK(cudaMalloc(&d_x, bytes));
+        CUDA_CHECK(cudaMalloc(&d_w, wbytes));
+        CUDA_CHECK(cudaMalloc(&d_y, bytes));
+        CUDA_CHECK(cudaMemcpy(d_x, h_x, bytes,  cudaMemcpyHostToDevice));
+        CUDA_CHECK(cudaMemcpy(d_w, h_w, wbytes, cudaMemcpyHostToDevice));
+
+        rmsnorm_v2_warp<<<rows, 128, 4 * sizeof(float)>>>(d_x, d_w, d_y, cols, EPS);
+        CUDA_CHECK(cudaDeviceSynchronize());
+        CUDA_CHECK(cudaMemcpy(h_y, d_y, bytes, cudaMemcpyDeviceToHost));
+
+        f = fopen(out_path, "wb");
+        if (!f) { fprintf(stderr, "Cannot write %s\n", out_path); exit(1); }
+        fwrite(h_y, sizeof(float), elem, f);
+        fclose(f);
+
+        CUDA_CHECK(cudaFree(d_x)); CUDA_CHECK(cudaFree(d_w)); CUDA_CHECK(cudaFree(d_y));
+        free(h_x); free(h_w); free(h_y);
+    }
+    printf("rmsnorm dump: rows=%d cols=%d dtype=%s -> %s\n",
+           rows, cols, use_fp16 ? "fp16" : "fp32", out_path);
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 int main(int argc, char** argv) {
     // Optional: path to benchmark.csv
-    const char* csv_path    = nullptr;
-    const char* dump_path   = nullptr;   // --dump_output <file>  (for test_correctness.py)
+    const char* csv_path         = nullptr;
+    const char* dump_path        = nullptr;
+    const char* load_input_path  = nullptr;
+    const char* load_weight_path = nullptr;
+    const char* dtype            = "fp32";
     int test_rows = 1024, test_hidden = 2048;
 
     for (int i = 1; i < argc; i++) {
-        if (!strcmp(argv[i], "--csv")         && i+1 < argc) csv_path  = argv[++i];
-        if (!strcmp(argv[i], "--dump_output") && i+1 < argc) dump_path = argv[++i];
-        if (!strcmp(argv[i], "--rows")        && i+1 < argc) test_rows   = atoi(argv[++i]);
-        if (!strcmp(argv[i], "--hidden")      && i+1 < argc) test_hidden = atoi(argv[++i]);
+        if (!strcmp(argv[i], "--csv")          && i+1 < argc) csv_path          = argv[++i];
+        if (!strcmp(argv[i], "--dump_output")  && i+1 < argc) dump_path         = argv[++i];
+        if (!strcmp(argv[i], "--load_input")   && i+1 < argc) load_input_path   = argv[++i];
+        if (!strcmp(argv[i], "--load_weight")  && i+1 < argc) load_weight_path  = argv[++i];
+        if (!strcmp(argv[i], "--dtype")        && i+1 < argc) dtype             = argv[++i];
+        if (!strcmp(argv[i], "--rows")         && i+1 < argc) test_rows   = atoi(argv[++i]);
+        if (!strcmp(argv[i], "--cols")         && i+1 < argc) test_hidden  = atoi(argv[++i]);
+        if (!strcmp(argv[i], "--hidden")       && i+1 < argc) test_hidden  = atoi(argv[++i]);
+    }
+
+    // ── Dump mode (called by test_correctness.py) ─────────────────────────────
+    if (load_input_path) {
+        if (!load_weight_path || !dump_path) {
+            fprintf(stderr, "Dump mode requires --load_input, --load_weight, --dump_output\n");
+            return 1;
+        }
+        run_dump(test_rows, test_hidden, strcmp(dtype, "fp16") == 0,
+                 load_input_path, load_weight_path, dump_path);
+        return 0;
     }
 
     const float EPS = 1e-5f;
