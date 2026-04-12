@@ -685,16 +685,25 @@ void forward_gpu_batched(const ModelWeights& w, const LlamaConfig& cfg,
 // ---------------------------------------------------------------------------
 // forward_gpu_int8 — W8A16 forward pass
 //
-// Identical to forward_gpu except every matrix-multiply on a weight matrix
-// dequantises it from INT8 to a temporary FP16 buffer first.
-// Activations stay FP16 throughout.
+// For decode (seq_len=1): uses fused INT8 GEMV — reads INT8 weights directly,
+// no temporary FP16 buffer, ~2x less memory traffic than FP16 GEMV.
+//
+// For prefill (seq_len>1): dequantises to FP16 buffer then calls cuBLAS GEMM.
 // ---------------------------------------------------------------------------
 
-// Helper: dequant Int8Tensor into a pre-allocated FP16 Tensor (avoids cudaMalloc/Free)
+// Helper: dequant Int8Tensor into a pre-allocated FP16 Tensor (prefill path)
 static void dequant_into(const Int8Tensor& w, Tensor& buf) {
     buf.shape[0] = w.rows;
     buf.shape[1] = w.cols;
     dequant_int8_to_fp16(w.d_data, w.d_scale, buf.fp16(), w.rows, w.cols);
+}
+
+// Helper: fused INT8 matvec for decode (seq_len=1)
+// x_in: [1, K] FP16, w: Int8Tensor [N, K], out: [1, N] FP16
+static void int8_gemv(const Tensor& x_in, const Int8Tensor& w, Tensor& out) {
+    int K = w.cols;
+    int N = w.rows;
+    gemv_int8_fp16(w.d_data, w.d_scale, x_in.fp16(), out.fp16(), N, K);
 }
 
 void forward_gpu_int8(const Int8ModelWeights& w, const LlamaConfig& cfg,
@@ -738,9 +747,12 @@ void forward_gpu_int8(const Int8ModelWeights& w, const LlamaConfig& cfg,
     Tensor up_buf(dims_gate,   2, DType::FP16, Device::CUDA);
     Tensor ffn_out(dims_ffn,   2, DType::FP16, Device::CUDA);
 
-    // Pre-allocate dequantisation buffer — largest weight is FD*H (ffn gate/up/down)
+    // Pre-allocate dequantisation buffer — only needed for prefill (seq_len > 1).
+    // For decode (seq_len == 1) we use fused INT8 GEMV and skip the buffer entirely.
     int dims_dq[2]  = {FD, H};  // large enough for any weight matrix
     Tensor dq_buf(dims_dq, 2, DType::FP16, Device::CUDA);
+
+    const bool decode_path = (seq_len == 1);  // fused INT8 GEMV for single-token decode
 
     for (int i = 0; i < cfg.num_layers; ++i) {
         const Int8LayerWeights& lw = w.layers[i];
@@ -749,15 +761,19 @@ void forward_gpu_int8(const Int8ModelWeights& w, const LlamaConfig& cfg,
         reshape2d(xn, seq_len, H);
         rms_norm_cuda(x, *lw.rms_attn, xn, cfg.rms_eps);
 
-        // QKV projections — dequant into reusable buffer before GEMM
+        // QKV projections
         reshape2d(q_buf, seq_len, NH * HD);
-        dequant_into(lw.attn_q, dq_buf); gemm_fp16(xn, dq_buf, q_buf);
-
         reshape2d(k_buf, seq_len, KVH * HD);
-        dequant_into(lw.attn_k, dq_buf); gemm_fp16(xn, dq_buf, k_buf);
-
         reshape2d(v_buf, seq_len, KVH * HD);
-        dequant_into(lw.attn_v, dq_buf); gemm_fp16(xn, dq_buf, v_buf);
+        if (decode_path) {
+            int8_gemv(xn, lw.attn_q, q_buf);
+            int8_gemv(xn, lw.attn_k, k_buf);
+            int8_gemv(xn, lw.attn_v, v_buf);
+        } else {
+            dequant_into(lw.attn_q, dq_buf); gemm_fp16(xn, dq_buf, q_buf);
+            dequant_into(lw.attn_k, dq_buf); gemm_fp16(xn, dq_buf, k_buf);
+            dequant_into(lw.attn_v, dq_buf); gemm_fp16(xn, dq_buf, v_buf);
+        }
 
         // RoPE
         reshape3d(q_buf, seq_len, NH,  HD);
@@ -786,7 +802,11 @@ void forward_gpu_int8(const Int8ModelWeights& w, const LlamaConfig& cfg,
         // Attention projection + residual
         reshape2d(attn_out, seq_len, H);
         reshape2d(proj_out, seq_len, H);
-        dequant_into(lw.attn_o, dq_buf); gemm_fp16(attn_out, dq_buf, proj_out);
+        if (decode_path) {
+            int8_gemv(attn_out, lw.attn_o, proj_out);
+        } else {
+            dequant_into(lw.attn_o, dq_buf); gemm_fp16(attn_out, dq_buf, proj_out);
+        }
         add_inplace_cuda(x, proj_out);
 
         // FFN pre-norm
@@ -795,16 +815,24 @@ void forward_gpu_int8(const Int8ModelWeights& w, const LlamaConfig& cfg,
 
         // SwiGLU FFN
         reshape2d(gate_buf, seq_len, FD);
-        dequant_into(lw.ffn_gate, dq_buf); gemm_fp16(xn, dq_buf, gate_buf);
-
         reshape2d(up_buf, seq_len, FD);
-        dequant_into(lw.ffn_up, dq_buf); gemm_fp16(xn, dq_buf, up_buf);
+        if (decode_path) {
+            int8_gemv(xn, lw.ffn_gate, gate_buf);
+            int8_gemv(xn, lw.ffn_up, up_buf);
+        } else {
+            dequant_into(lw.ffn_gate, dq_buf); gemm_fp16(xn, dq_buf, gate_buf);
+            dequant_into(lw.ffn_up, dq_buf); gemm_fp16(xn, dq_buf, up_buf);
+        }
 
         silu_cuda(gate_buf);
         mul_cuda(gate_buf, up_buf, gate_buf);
 
         reshape2d(ffn_out, seq_len, H);
-        dequant_into(lw.ffn_down, dq_buf); gemm_fp16(gate_buf, dq_buf, ffn_out);
+        if (decode_path) {
+            int8_gemv(gate_buf, lw.ffn_down, ffn_out);
+        } else {
+            dequant_into(lw.ffn_down, dq_buf); gemm_fp16(gate_buf, dq_buf, ffn_out);
+        }
         add_inplace_cuda(x, ffn_out);
     }
 

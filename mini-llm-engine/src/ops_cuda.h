@@ -56,3 +56,10 @@ void dequant_int8_to_fp16(const int8_t* d_int8, const float* d_scale,
 // d_dst and d_scl must be pre-allocated (cudaMalloc) by the caller.
 void quantize_fp16_to_int8_gpu(const __half* d_src, int8_t* d_dst, float* d_scl,
                                  int rows, int cols);
+
+// Fused INT8 matrix-vector multiply: y = W_int8 @ x  (W8A16)
+// W_int8: [N, K] INT8 on GPU, scale: [N] FP32 per-row
+// x: [K] FP16 on GPU, y: [N] FP16 on GPU
+// Reads INT8 weights directly without dequantising to FP16 buffer.
+void gemv_int8_fp16(const int8_t* d_weight, const float* d_scale,
+                    const __half* d_x, __half* d_y, int N, int K);

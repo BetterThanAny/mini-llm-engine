@@ -781,6 +781,67 @@ void dequant_int8_to_fp16(const int8_t* d_int8, const float* d_scale,
     CUDA_CHECK(cudaGetLastError());
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Fused INT8 GEMV: y[n] = scale[n] * sum_k( w_int8[n,k] * x[k] )
+//
+// One block per output row.  Threads within the block cooperatively reduce
+// the dot product.  Reads INT8 weights directly — no temporary FP16 buffer,
+// so memory traffic is ~half of FP16 GEMV for the weight matrix.
+//
+// Block = 256 threads.  Each thread handles K/256 elements in a strided loop.
+// Warp shuffle reduction → shared memory reduction across warps → final write.
+// ─────────────────────────────────────────────────────────────────────────────
+
+__global__ void gemv_int8_fp16_kernel(
+    const int8_t* __restrict__ W,       // [N, K] INT8
+    const float*  __restrict__ scale,   // [N]    FP32
+    const __half* __restrict__ x,       // [K]    FP16
+    __half*       __restrict__ y,       // [N]    FP16
+    int N, int K)
+{
+    const int row = blockIdx.x;
+    if (row >= N) return;
+
+    const int8_t* W_row = W + (size_t)row * K;
+
+    // Each thread accumulates a partial sum in FP32
+    float partial = 0.0f;
+    for (int k = threadIdx.x; k < K; k += blockDim.x) {
+        partial += (float)W_row[k] * __half2float(x[k]);
+    }
+
+    // Warp-level reduction
+    for (int offset = 16; offset > 0; offset >>= 1)
+        partial += __shfl_down_sync(0xffffffff, partial, offset);
+
+    // Cross-warp reduction via shared memory
+    __shared__ float warp_sums[8];  // max 256/32 = 8 warps
+    int lane = threadIdx.x & 31;
+    int warp = threadIdx.x >> 5;
+
+    if (lane == 0)
+        warp_sums[warp] = partial;
+    __syncthreads();
+
+    // First warp reduces across all warps
+    if (warp == 0) {
+        int num_warps = blockDim.x >> 5;
+        partial = (lane < num_warps) ? warp_sums[lane] : 0.0f;
+        for (int offset = 16; offset > 0; offset >>= 1)
+            partial += __shfl_down_sync(0xffffffff, partial, offset);
+        if (lane == 0)
+            y[row] = __float2half(partial * scale[row]);
+    }
+}
+
+void gemv_int8_fp16(const int8_t* d_weight, const float* d_scale,
+                    const __half* d_x, __half* d_y, int N, int K)
+{
+    const int block = 256;
+    gemv_int8_fp16_kernel<<<N, block>>>(d_weight, d_scale, d_x, d_y, N, K);
+    CUDA_CHECK(cudaGetLastError());
+}
+
 // Quantise FP16 GPU weight matrix to INT8+scale (CPU-side loop, called once at load time).
 // src:   [rows, cols]  FP16 on GPU   — copied to CPU for quantisation then uploaded
 // d_dst: [rows, cols]  INT8 on GPU   — caller must cudaMalloc
