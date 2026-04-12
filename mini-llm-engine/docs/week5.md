@@ -161,11 +161,11 @@ _Protocol: warmup 3, measure 5, take median. RTX 3080 Laptop GPU._
 |--------|-----------|---------------|----------------|------------------------|
 | HF baseline FP16 (W3) | — | — | — | — |
 | CPU FP32 (W4) | ~3470 | ~1.4 | N/A | — |
-| GPU FP16 (W5→W6 flash) | 24.19 | 91.5 | ~1288 | — |
+| GPU FP16 (W5→W6 flash) | 31.53 | 100.1 | ~1288 | — |
 | llama.cpp FP16 | — | — | — | — |
 
 Target: GPU decode > 100 tok/s for 128-token generation at prompt length 128.
-Achieved: 91.5 tok/s — close to target, memory-bandwidth limited on laptop GPU.
+Achieved: 100.1 tok/s — target met after fixing cuBLAS alpha/beta type mismatch and RoPE dimension ordering.
 
 Run via: `benchmarks/run_benchmark.sh`
 

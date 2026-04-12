@@ -269,6 +269,8 @@ int main(int argc, char** argv) {
     // --- Tokenize prompt ---
     std::vector<int> input_ids;
     sp.Encode(prompt, &input_ids);
+    // LLaMA models expect BOS (token 1) at the start; SentencePiece doesn't add it
+    input_ids.insert(input_ids.begin(), 1);
     printf("Prompt: \"%s\"\n", prompt.c_str());
     printf("Prompt tokens: %d\n", static_cast<int>(input_ids.size()));
 

@@ -61,7 +61,8 @@ void rope_cpu(float* xq, float* xk, int num_tokens,
     // head_dim must be even for RoPE
     int half_dim = head_dim / 2;
 
-    // Apply to query heads
+    // Apply to query heads — half-half RoPE (matches HuggingFace LLaMA)
+    // Pairs dim j with dim j + half_dim (NOT interleaved 2j, 2j+1)
     for (int tok = 0; tok < num_tokens; ++tok) {
         int pos = pos_offset + tok;
         for (int h = 0; h < num_q_heads; ++h) {
@@ -72,11 +73,11 @@ void rope_cpu(float* xq, float* xk, int num_tokens,
                 float cos_a = std::cos(angle);
                 float sin_a = std::sin(angle);
 
-                float x0 = head_ptr[2 * j];
-                float x1 = head_ptr[2 * j + 1];
+                float x0 = head_ptr[j];
+                float x1 = head_ptr[j + half_dim];
 
-                head_ptr[2 * j]     = x0 * cos_a - x1 * sin_a;
-                head_ptr[2 * j + 1] = x0 * sin_a + x1 * cos_a;
+                head_ptr[j]            = x0 * cos_a - x1 * sin_a;
+                head_ptr[j + half_dim] = x0 * sin_a + x1 * cos_a;
             }
         }
     }
@@ -92,11 +93,11 @@ void rope_cpu(float* xq, float* xk, int num_tokens,
                 float cos_a = std::cos(angle);
                 float sin_a = std::sin(angle);
 
-                float x0 = head_ptr[2 * j];
-                float x1 = head_ptr[2 * j + 1];
+                float x0 = head_ptr[j];
+                float x1 = head_ptr[j + half_dim];
 
-                head_ptr[2 * j]     = x0 * cos_a - x1 * sin_a;
-                head_ptr[2 * j + 1] = x0 * sin_a + x1 * cos_a;
+                head_ptr[j]            = x0 * cos_a - x1 * sin_a;
+                head_ptr[j + half_dim] = x0 * sin_a + x1 * cos_a;
             }
         }
     }

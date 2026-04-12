@@ -169,8 +169,8 @@ temperature=0, top_k=1, seed=42. Warmup 3 runs, measure 5 runs, median.
 
 | Metric | W5 (naive) | W6 (flash) | HF baseline |
 |---|---|---|---|
-| TTFT (ms) | — | 24.19 | — |
-| Decode (tok/s) | — | 91.5 | — |
+| TTFT (ms) | — | 31.53 | — |
+| Decode (tok/s) | — | 100.1 | — |
 | Peak VRAM (MB) | — | ~1288 | — |
 | P95 decode latency (ms) | — | — | — |
 

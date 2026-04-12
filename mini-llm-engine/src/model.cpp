@@ -6,6 +6,7 @@
 #include "ops_cpu.h"
 #include "ops_cuda.h"
 
+#include <algorithm>
 #include <cassert>
 #include <cstdint>
 #include <cstdio>
@@ -689,12 +690,11 @@ void forward_gpu_batched(const ModelWeights& w, const LlamaConfig& cfg,
 // Activations stay FP16 throughout.
 // ---------------------------------------------------------------------------
 
-// Helper: dequant Int8Tensor → temp FP16 Tensor, return Tensor
-static Tensor dequant_to_fp16_tensor(const Int8Tensor& w) {
-    int dims[2] = {w.rows, w.cols};
-    Tensor out(dims, 2, DType::FP16, Device::CUDA);
-    dequant_int8_to_fp16(w.d_data, w.d_scale, out.fp16(), w.rows, w.cols);
-    return out;
+// Helper: dequant Int8Tensor into a pre-allocated FP16 Tensor (avoids cudaMalloc/Free)
+static void dequant_into(const Int8Tensor& w, Tensor& buf) {
+    buf.shape[0] = w.rows;
+    buf.shape[1] = w.cols;
+    dequant_int8_to_fp16(w.d_data, w.d_scale, buf.fp16(), w.rows, w.cols);
 }
 
 void forward_gpu_int8(const Int8ModelWeights& w, const LlamaConfig& cfg,
@@ -738,6 +738,10 @@ void forward_gpu_int8(const Int8ModelWeights& w, const LlamaConfig& cfg,
     Tensor up_buf(dims_gate,   2, DType::FP16, Device::CUDA);
     Tensor ffn_out(dims_ffn,   2, DType::FP16, Device::CUDA);
 
+    // Pre-allocate dequantisation buffer — largest weight is FD*H (ffn gate/up/down)
+    int dims_dq[2]  = {FD, H};  // large enough for any weight matrix
+    Tensor dq_buf(dims_dq, 2, DType::FP16, Device::CUDA);
+
     for (int i = 0; i < cfg.num_layers; ++i) {
         const Int8LayerWeights& lw = w.layers[i];
 
@@ -745,15 +749,15 @@ void forward_gpu_int8(const Int8ModelWeights& w, const LlamaConfig& cfg,
         reshape2d(xn, seq_len, H);
         rms_norm_cuda(x, *lw.rms_attn, xn, cfg.rms_eps);
 
-        // QKV projections — dequant each weight before GEMM
+        // QKV projections — dequant into reusable buffer before GEMM
         reshape2d(q_buf, seq_len, NH * HD);
-        { Tensor wq = dequant_to_fp16_tensor(lw.attn_q); gemm_fp16(xn, wq, q_buf); }
+        dequant_into(lw.attn_q, dq_buf); gemm_fp16(xn, dq_buf, q_buf);
 
         reshape2d(k_buf, seq_len, KVH * HD);
-        { Tensor wk = dequant_to_fp16_tensor(lw.attn_k); gemm_fp16(xn, wk, k_buf); }
+        dequant_into(lw.attn_k, dq_buf); gemm_fp16(xn, dq_buf, k_buf);
 
         reshape2d(v_buf, seq_len, KVH * HD);
-        { Tensor wv = dequant_to_fp16_tensor(lw.attn_v); gemm_fp16(xn, wv, v_buf); }
+        dequant_into(lw.attn_v, dq_buf); gemm_fp16(xn, dq_buf, v_buf);
 
         // RoPE
         reshape3d(q_buf, seq_len, NH,  HD);
@@ -782,7 +786,7 @@ void forward_gpu_int8(const Int8ModelWeights& w, const LlamaConfig& cfg,
         // Attention projection + residual
         reshape2d(attn_out, seq_len, H);
         reshape2d(proj_out, seq_len, H);
-        { Tensor wo = dequant_to_fp16_tensor(lw.attn_o); gemm_fp16(attn_out, wo, proj_out); }
+        dequant_into(lw.attn_o, dq_buf); gemm_fp16(attn_out, dq_buf, proj_out);
         add_inplace_cuda(x, proj_out);
 
         // FFN pre-norm
@@ -791,16 +795,16 @@ void forward_gpu_int8(const Int8ModelWeights& w, const LlamaConfig& cfg,
 
         // SwiGLU FFN
         reshape2d(gate_buf, seq_len, FD);
-        { Tensor wg = dequant_to_fp16_tensor(lw.ffn_gate); gemm_fp16(xn, wg, gate_buf); }
+        dequant_into(lw.ffn_gate, dq_buf); gemm_fp16(xn, dq_buf, gate_buf);
 
         reshape2d(up_buf, seq_len, FD);
-        { Tensor wu = dequant_to_fp16_tensor(lw.ffn_up);   gemm_fp16(xn, wu, up_buf); }
+        dequant_into(lw.ffn_up, dq_buf); gemm_fp16(xn, dq_buf, up_buf);
 
         silu_cuda(gate_buf);
         mul_cuda(gate_buf, up_buf, gate_buf);
 
         reshape2d(ffn_out, seq_len, H);
-        { Tensor wd = dequant_to_fp16_tensor(lw.ffn_down); gemm_fp16(gate_buf, wd, ffn_out); }
+        dequant_into(lw.ffn_down, dq_buf); gemm_fp16(gate_buf, dq_buf, ffn_out);
         add_inplace_cuda(x, ffn_out);
     }
 

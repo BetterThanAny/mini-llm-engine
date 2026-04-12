@@ -149,17 +149,17 @@ MODEL_PATH=... TOKENIZER_PATH=... python tests/test_gpu_cpu_match.py
 | HF FP16 (W3 baseline) | — | — | — | — |
 | mini-llm-engine CPU FP32 | ~3470 | ~1.4 | N/A | — |
 | mini-llm-engine GPU FP16 W5 (naive attn) | — | — | — | — |
-| mini-llm-engine GPU FP16 W6 (flash attn) | 24.19 | 91.5 | ~1288 | — |
-| mini-llm-engine GPU INT8 W7 | 192.73 | 5.2 | ~1300 | — |
+| mini-llm-engine GPU FP16 W6 (flash attn) | 31.53 | 100.1 | ~1288 | — |
+| mini-llm-engine GPU INT8 W7 | 43.76 | 44.3 | ~1300 | — |
 
 ### Batch throughput (GPU FP16, Flash Attention)
 
 | batch_size | Aggregate tok/s | Per-stream tok/s | Peak VRAM (MB) |
 |---|---|---|---|
-| 1 | 91.5 | 91.5 | ~1288 |
-| 2 | 95.7 | 47.9 | — |
-| 4 | 95.1 | 23.8 | — |
-| 8 | 93.0 | 11.6 | — |
+| 1 | 100.1 | 100.1 | ~1288 |
+| 2 | 94.6 | 47.3 | — |
+| 4 | 95.9 | 24.0 | — |
+| 8 | 95.1 | 11.9 | — |
 
 ---
 

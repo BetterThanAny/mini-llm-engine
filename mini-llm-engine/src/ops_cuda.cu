@@ -251,16 +251,17 @@ __global__ void rope_fp16_kernel(__half* __restrict__ x,
 {
     int tok  = blockIdx.x;
     int head = blockIdx.y;
-    int j    = threadIdx.x;   // dim pair index: processes elements 2*j, 2*j+1
+    int j    = threadIdx.x;   // dim pair index: processes elements j, j + half_dim
 
-    if (head >= num_heads || j >= head_dim / 2) return;
+    int half_dim = head_dim / 2;
+    if (head >= num_heads || j >= half_dim) return;
 
-    // Pointer to this (tok, head) slice
-    int offset = tok * num_heads * head_dim + head * head_dim + 2 * j;
-    __half* xp = x + offset;
+    // Half-half RoPE (matches HuggingFace LLaMA): pair (j, j + half_dim)
+    int base = tok * num_heads * head_dim + head * head_dim;
+    __half* xp = x + base;
 
-    float x0 = __half2float(xp[0]);
-    float x1 = __half2float(xp[1]);
+    float x0 = __half2float(xp[j]);
+    float x1 = __half2float(xp[j + half_dim]);
 
     int pos = position_offset + tok;
     float freq  = 1.0f / powf(10000.0f, 2.0f * (float)j / (float)head_dim);
@@ -268,8 +269,8 @@ __global__ void rope_fp16_kernel(__half* __restrict__ x,
     float c = cosf(angle);
     float s = sinf(angle);
 
-    xp[0] = __float2half(x0 * c - x1 * s);
-    xp[1] = __float2half(x0 * s + x1 * c);
+    xp[j]             = __float2half(x0 * c - x1 * s);
+    xp[j + half_dim]  = __float2half(x0 * s + x1 * c);
 }
 
 void rope_cuda(Tensor& q, Tensor& k, int position_offset)
@@ -329,8 +330,9 @@ void gemm_fp16(const Tensor& A, const Tensor& B, Tensor& C,
     const __half* B_ptr = B.fp16();
     __half*       C_ptr = C.fp16();
 
-    __half h_alpha = __float2half(alpha);
-    __half h_beta  = __float2half(beta);
+    // CUBLAS_COMPUTE_32F requires alpha/beta as float*, not __half*
+    float f_alpha = alpha;
+    float f_beta  = beta;
 
     cublasHandle_t handle = get_cublas_handle();
 
@@ -343,10 +345,10 @@ void gemm_fp16(const Tensor& A, const Tensor& B, Tensor& C,
         CUBLAS_OP_T,      // transa: transpose A (row-major A → col-major A^T)
         CUBLAS_OP_N,      // transb: no-transpose B
         N, M, K,          // m, n, k  (C is N×M in col-major)
-        &h_alpha,
+        &f_alpha,
         B_ptr, CUDA_R_16F, K,   // B [N, K] row-major → [K, N] col-major, ldb=K
         A_ptr, CUDA_R_16F, K,   // A [M, K] row-major → [K, M] col-major, lda=K
-        &h_beta,
+        &f_beta,
         C_ptr, CUDA_R_16F, N,   // C [M, N] row-major → [N, M] col-major, ldc=N
         CUBLAS_COMPUTE_32F,
         CUBLAS_GEMM_DEFAULT_TENSOR_OP));
