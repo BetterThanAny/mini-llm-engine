@@ -298,6 +298,14 @@ static float bench_naive(int M, int N, int K,
 
 static float bench_regtiled(int M, int N, int K,
                             const float* d_A, const float* d_B, float* d_C) {
+    // Precondition: float4 load/store paths require M, N, K divisible by 4
+    // for 16-byte alignment. Misaligned float4 access is UB.
+    if (M % 4 != 0 || N % 4 != 0 || K % 4 != 0) {
+        fprintf(stderr,
+                "gemm_register_tiled requires M, N, K all divisible by 4 "
+                "(got M=%d N=%d K=%d)\n", M, N, K);
+        exit(1);
+    }
     constexpr int BM = 128, BN = 128, TM = 8, TN = 8;
     dim3 block(BN / TN, BM / TM);                           // (16, 16) = 256 threads
     dim3 grid((N + BN - 1) / BN, (M + BM - 1) / BM);

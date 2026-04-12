@@ -219,6 +219,14 @@ int main() {
     const int WARMUP    = 3;
     const int ITERS     = 5;
 
+    // Preconditions for reduce_v4_shfl: the final warp folds
+    // sdata[tid] + sdata[tid+32], so THREADS must be ≥ 64. All tree
+    // reductions (v1-v4) additionally assume THREADS is a power of 2.
+    static_assert(THREADS >= 64,
+                  "reduce_v4_shfl requires THREADS >= 64");
+    static_assert((THREADS & (THREADS - 1)) == 0,
+                  "THREADS must be a power of 2 (tree reduction)");
+
     // v3/v4: each thread loads 2 elements → half as many blocks
     const int BLOCKS_V12 = (N + THREADS - 1) / THREADS;
     const int BLOCKS_V34 = (N + THREADS * 2 - 1) / (THREADS * 2);

@@ -146,7 +146,12 @@ int main() {
 
         // Correctness check (small size only, full-size is too slow on CPU)
         if (N <= 2048) {
-            bench(rows, cols, 1, d_A, d_B);     // warm up tiled result
+            bench(rows, cols, 0, d_A, d_B);     // naive
+            CUDA_CHECK(cudaMemcpy(h_B, d_B, bytes, cudaMemcpyDeviceToHost));
+            check_correctness(h_A, h_B, rows, cols);
+            printf("  [N=%d] naive correctness OK\n", N);
+
+            bench(rows, cols, 1, d_A, d_B);     // tiled
             CUDA_CHECK(cudaMemcpy(h_B, d_B, bytes, cudaMemcpyDeviceToHost));
             check_correctness(h_A, h_B, rows, cols);
             printf("  [N=%d] tiled correctness OK\n", N);

@@ -364,6 +364,9 @@ int main(int argc, char* argv[])
     const int Ns[]       = {128, 512, 2048, 4096};
     const int num_N      = (int)(sizeof(Ns) / sizeof(Ns[0]));
 
+    static_assert((256 & (256 - 1)) == 0,
+                  "block_size must be a power of 2 (tree reduction)");
+
     // Pre-allocate largest reference buffer (reused across runs)
     const int N_max = Ns[num_N - 1];
     float* h_ref = (float*)malloc((size_t)B * N_max * sizeof(float));

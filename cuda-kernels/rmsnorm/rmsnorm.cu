@@ -192,6 +192,11 @@ static void run_dump(int rows, int cols, bool use_fp16,
                      const char* in_path, const char* wt_path,
                      const char* out_path) {
     const float EPS = 1e-5f;
+    // v2_warp precondition: float4 vectorized loads require cols divisible by 4
+    if (cols % 4 != 0) {
+        fprintf(stderr, "rmsnorm dump mode requires cols %% 4 == 0 (got %d)\n", cols);
+        exit(1);
+    }
     const size_t elem = (size_t)rows * cols;
 
     if (use_fp16) {
@@ -212,18 +217,8 @@ static void run_dump(int rows, int cols, bool use_fp16,
         if (fread(h_w, sizeof(T), (size_t)cols, f) != (size_t)cols) { fprintf(stderr, "Short read %s\n", wt_path); exit(1); }
         fclose(f);
 
-        T *d_x, *d_w, *d_y;
-        CUDA_CHECK(cudaMalloc(&d_x, bytes));
-        CUDA_CHECK(cudaMalloc(&d_w, wbytes));
-        CUDA_CHECK(cudaMalloc(&d_y, bytes));
-        CUDA_CHECK(cudaMemcpy(d_x, h_x, bytes,  cudaMemcpyHostToDevice));
-        CUDA_CHECK(cudaMemcpy(d_w, h_w, wbytes, cudaMemcpyHostToDevice));
-
-        // Reuse v2_warp logic via a fp16 wrapper (accumulate in fp32)
-        // Using v1_naive cast stub for fp16: accumulate in fp32
-        // Launch v1 naive adapted for fp16: we convert in/out on-the-fly
-        // For correctness testing, launch with block=128, smem=4 warps
-        // NOTE: v2_warp kernel is FP32-only; we run on FP32 copy then convert.
+        // v2_warp is FP32-only: convert FP16 input to FP32 on host,
+        // run FP32 kernel, then convert output back to FP16.
         float* h_xf = (float*)malloc(elem * sizeof(float));
         float* h_wf = (float*)malloc((size_t)cols * sizeof(float));
         float* h_yf = (float*)malloc(elem * sizeof(float));
@@ -249,7 +244,6 @@ static void run_dump(int rows, int cols, bool use_fp16,
         fwrite(h_y, sizeof(T), elem, f);
         fclose(f);
 
-        CUDA_CHECK(cudaFree(d_x)); CUDA_CHECK(cudaFree(d_w)); CUDA_CHECK(cudaFree(d_y));
         CUDA_CHECK(cudaFree(d_xf)); CUDA_CHECK(cudaFree(d_wf)); CUDA_CHECK(cudaFree(d_yf));
         free(h_x); free(h_w); free(h_y); free(h_xf); free(h_wf); free(h_yf);
     } else {
@@ -376,6 +370,11 @@ int main(int argc, char** argv) {
         CUDA_CHECK(cudaMemcpy(h_got, d_y, bytes_xyw, cudaMemcpyDeviceToHost));
         check_correctness(h_ref, h_got, rows * hidden, "v1_naive");
 
+        // v2_warp precondition: float4 vectorized loads require hidden divisible by 4
+        if (hidden % 4 != 0) {
+            fprintf(stderr, "rmsnorm_v2_warp requires hidden %% 4 == 0 (got %d)\n", hidden);
+            exit(1);
+        }
         // v2 warp: block_size=128 (4 warps), shared = 4 floats (one per warp)
         float ms_v2 = bench(rmsnorm_v2_warp, "v2_warp",
                             d_x, d_w, d_y, rows, hidden, EPS,

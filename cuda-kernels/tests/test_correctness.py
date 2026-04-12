@@ -159,11 +159,15 @@ def run_test(kernel: str, dtype: str, rows: int, cols: int,
 # ── Test matrix ───────────────────────────────────────────────────────────────
 
 TEST_CONFIGS = [
-    # (rows, cols)
+    # (rows, cols) — cols must be a multiple of 4 (rmsnorm v2_warp precondition)
     (1,    128),
     (32,   512),
     (128,  2048),
     (256,  4096),
+    # Edge cases: non-power-of-2 dimensions and minimal sizes
+    (1,    4),        # minimal row/col
+    (7,    260),      # non-power-of-2 rows + cols (260 = 256 + 4)
+    (128,  1028),     # non-power-of-2 cols just above 1024
 ]
 
 KERNELS = ["rmsnorm", "softmax"]
