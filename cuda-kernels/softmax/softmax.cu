@@ -17,6 +17,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <cmath>
+#include <string>
 #include <cfloat>
 #include <algorithm>
 #include <cuda_runtime.h>

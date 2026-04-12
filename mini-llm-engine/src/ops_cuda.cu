@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cmath>
+#include <vector>
 #include <mutex>
 
 // ── Error-check helpers ───────────────────────────────────────────────────────

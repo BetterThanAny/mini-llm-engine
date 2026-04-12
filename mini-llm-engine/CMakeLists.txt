@@ -11,7 +11,7 @@ find_package(CUDAToolkit REQUIRED)
 include(FetchContent)
 FetchContent_Declare(
     sentencepiece
-    GIT_REPOSITORY https://github.com/google/sentencepiece.git
+    GIT_REPOSITORY http://github.com/google/sentencepiece.git
     GIT_TAG        v0.2.0
     GIT_SHALLOW    TRUE
 )
@@ -29,6 +29,10 @@ add_executable(llm_engine
     src/kv_cache.cpp
     src/sampler.cpp
     src/ops_cuda.cu
+)
+
+target_include_directories(llm_engine PRIVATE
+    ${sentencepiece_SOURCE_DIR}/src
 )
 
 target_link_libraries(llm_engine
