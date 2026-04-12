@@ -15,10 +15,12 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <cmath>
 #include <cfloat>
 #include <algorithm>
 #include <cuda_runtime.h>
+#include <cuda_fp16.h>
 
 // ── Error checking ────────────────────────────────────────────────────────────
 #define CUDA_CHECK(call)                                                       \
