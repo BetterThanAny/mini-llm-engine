@@ -46,7 +46,11 @@ benchmarks/*.log
 
 # OS
 .DS_Store
+._*
 Thumbs.db
+
+# uv
+uv.lock
 
 # Editor
 .vscode/settings.json
