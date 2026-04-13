@@ -4,8 +4,11 @@
 # Warmup is handled internally by llama-bench; runs=5.
 set -euo pipefail
 
-LLAMACPP_BENCH="/home/xs/ai_infra/llama.cpp/build/bin/llama-bench"
-MODEL="/home/xs/ai_infra/mini-llm-engine/weights/tinyllama-f16.gguf"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+LLAMACPP_BENCH="$REPO_ROOT/llama.cpp/build/bin/llama-bench"
+MODEL="$SCRIPT_DIR/../weights/tinyllama-f16.gguf"
 GPU_LAYERS=999
 
 echo "=== llama.cpp FP16 Baseline Benchmark ==="
@@ -22,7 +25,7 @@ echo ""
 
 echo ""
 echo "=== VRAM (from llama-cli single run) ==="
-/home/xs/ai_infra/llama.cpp/build/bin/llama-cli \
+"$REPO_ROOT/llama.cpp/build/bin/llama-cli" \
     -m "$MODEL" \
     -p "Hello" \
     -n 1 \
