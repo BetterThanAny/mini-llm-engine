@@ -118,6 +118,93 @@ __global__ void rmsnorm_v2_warp(const float* __restrict__ x,
         yr[j] = xr[j] * rms_inv * w[j];
 }
 
+// ── v3: warp shuffle + float4 + register-cached x ─────────────────────────────
+// Eliminates the redundant second read of x in phase 2 by caching it in
+// registers between the two passes. Traffic: x (1x) + w (1x) + y (1x) = 3N
+// vs v1/v2 which effectively do x (2x) + w + y = 4N (second x read hits L2
+// but still consumes bandwidth). Expected speedup over v1: ~1.33x.
+//
+// Block size = 256. Each thread handles hidden / 256 elements via float4,
+// cached in a small register array. For hidden ≤ 8192 this stays in regs.
+__global__ void rmsnorm_v3_regcache(const float* __restrict__ x,
+                                     const float* __restrict__ w,
+                                     float*       __restrict__ y,
+                                     int hidden, float eps) {
+    constexpr int BLOCK = 256;
+    constexpr int MAX_VEC_PER_THREAD = 8;  // supports hidden up to 256*4*8 = 8192
+
+    int row = blockIdx.x;
+    const float* xr = x + row * hidden;
+    float*       yr = y + row * hidden;
+
+    // Uniform vec_iters across all threads: vec region = [0, vec_iters*BLOCK*4).
+    // Remainder in [vec_end, hidden) handled by scalar tail (executed by all
+    // threads but only for indices they own). Eliminates double counting when
+    // some threads would have nvec=0 while others have nvec>0.
+    const int vec_iters = hidden / (BLOCK * 4);
+    const int vec_end   = vec_iters * BLOCK * 4;
+
+    float4 cache[MAX_VEC_PER_THREAD];
+    float  sum = 0.0f;
+
+    int i = threadIdx.x * 4;
+    #pragma unroll
+    for (int k = 0; k < MAX_VEC_PER_THREAD; k++) {
+        if (k < vec_iters) {
+            float4 v = *reinterpret_cast<const float4*>(xr + i);
+            cache[k] = v;
+            sum += v.x*v.x + v.y*v.y + v.z*v.z + v.w*v.w;
+            i += BLOCK * 4;
+        }
+    }
+    // Scalar tail for [vec_end, hidden). Re-read from global (not cached).
+    for (int j = vec_end + threadIdx.x; j < hidden; j += BLOCK) {
+        float v = xr[j];
+        sum += v * v;
+    }
+
+    // Warp reduce
+    for (int offset = 16; offset > 0; offset >>= 1)
+        sum += __shfl_down_sync(0xffffffff, sum, offset);
+
+    extern __shared__ float smem[];
+    int warp_id = threadIdx.x >> 5;
+    int lane    = threadIdx.x & 31;
+    if (lane == 0) smem[warp_id] = sum;
+    __syncthreads();
+
+    constexpr int NUM_WARPS = BLOCK >> 5;  // 8
+    if (warp_id == 0) {
+        sum = (lane < NUM_WARPS) ? smem[lane] : 0.0f;
+        for (int offset = 16; offset > 0; offset >>= 1)
+            sum += __shfl_down_sync(0xffffffff, sum, offset);
+        if (lane == 0) smem[0] = sum;
+    }
+    __syncthreads();
+
+    float rms_inv = rsqrtf(smem[0] / (float)hidden + eps);
+
+    // Phase 2: use cached x for the vec region, only read w and write y
+    i = threadIdx.x * 4;
+    #pragma unroll
+    for (int k = 0; k < MAX_VEC_PER_THREAD; k++) {
+        if (k < vec_iters) {
+            float4 vx = cache[k];
+            float4 vw = *reinterpret_cast<const float4*>(w + i);
+            float4 vy;
+            vy.x = vx.x * rms_inv * vw.x;
+            vy.y = vx.y * rms_inv * vw.y;
+            vy.z = vx.z * rms_inv * vw.z;
+            vy.w = vx.w * rms_inv * vw.w;
+            *reinterpret_cast<float4*>(yr + i) = vy;
+            i += BLOCK * 4;
+        }
+    }
+    // Tail: re-read x from global (not cached)
+    for (int j = vec_end + threadIdx.x; j < hidden; j += BLOCK)
+        yr[j] = xr[j] * rms_inv * w[j];
+}
+
 // ── CPU reference ─────────────────────────────────────────────────────────────
 static void rmsnorm_cpu(const float* x, const float* w, float* y,
                          int rows, int hidden, float eps) {
@@ -384,7 +471,17 @@ int main(int argc, char** argv) {
         CUDA_CHECK(cudaMemcpy(h_got, d_y, bytes_xyw, cudaMemcpyDeviceToHost));
         check_correctness(h_ref, h_got, rows * hidden, "v2_warp");
 
-        printf("  speedup v2/v1: %.2fx\n", ms_v1 / ms_v2);
+        // v3 regcache: block_size=256 (8 warps), shared = 8 floats
+        float ms_v3 = bench(rmsnorm_v3_regcache, "v3_regcache",
+                            d_x, d_w, d_y, rows, hidden, EPS,
+                            256, 8 * sizeof(float));
+
+        // Correctness v3
+        CUDA_CHECK(cudaMemcpy(h_got, d_y, bytes_xyw, cudaMemcpyDeviceToHost));
+        check_correctness(h_ref, h_got, rows * hidden, "v3_regcache");
+
+        printf("  speedup v2/v1: %.2fx   v3/v1: %.2fx\n",
+               ms_v1 / ms_v2, ms_v1 / ms_v3);
 
         // Dump output for test_correctness.py (uses last config's v2 output)
         if (dump_path && c == num_cfg - 1) {
@@ -398,6 +495,8 @@ int main(int argc, char** argv) {
                     rows, hidden, ms_v1, gb / (ms_v1 / 1000.0f));
             fprintf(csv_fp, "rmsnorm,v2_warp,%dx%d,128,%.3f,%.1f,FP32 GB/s\n",
                     rows, hidden, ms_v2, gb / (ms_v2 / 1000.0f));
+            fprintf(csv_fp, "rmsnorm,v3_regcache,%dx%d,256,%.3f,%.1f,FP32 GB/s\n",
+                    rows, hidden, ms_v3, gb / (ms_v3 / 1000.0f));
         }
 
         CUDA_CHECK(cudaFree(d_x));
