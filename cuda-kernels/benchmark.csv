@@ -1,7 +1,36 @@
 kernel,variant,size,block_size,time_ms,throughput,notes
-# transpose results — fill after running ./build/transpose/transpose
-# transpose,naive,4096,32,<time_ms>,<GB/s>,bandwidth_GBs
-# transpose,tiled,4096,32,<time_ms>,<GB/s>,bandwidth_GBs
-# gemm results — fill after running ./build/gemm/gemm
-# gemm,naive,2048,32,<time_ms>,<TFLOPS>,TFLOPS
-# gemm,cublas,2048,N/A,<time_ms>,<TFLOPS>,TFLOPS
+transpose,naive,1024,32,0.0891,94.16,bandwidth_GBs
+transpose,tiled,1024,32,0.0348,240.94,bandwidth_GBs
+transpose,naive,2048,32,0.2785,120.47,bandwidth_GBs
+transpose,tiled,2048,32,0.1055,318.14,bandwidth_GBs
+transpose,naive,4096,32,1.0772,124.59,bandwidth_GBs
+transpose,tiled,4096,32,0.3820,351.40,bandwidth_GBs
+transpose,naive,8192,32,4.2639,125.91,bandwidth_GBs
+transpose,tiled,8192,32,1.5401,348.60,bandwidth_GBs
+rmsnorm,v1_naive,256x512,256,0.019,80.8,bandwidth_GBs
+rmsnorm,v2_warp,256x512,256,0.018,85.3,bandwidth_GBs
+rmsnorm,v1_naive,256x2048,256,0.015,409.6,bandwidth_GBs
+rmsnorm,v2_warp,256x2048,256,0.013,472.6,bandwidth_GBs
+rmsnorm,v1_naive,1024x2048,256,0.058,431.2,bandwidth_GBs
+rmsnorm,v2_warp,1024x2048,256,0.058,431.2,bandwidth_GBs
+rmsnorm,v1_naive,1024x4096,256,0.126,399.6,bandwidth_GBs
+rmsnorm,v2_warp,1024x4096,256,0.133,378.1,bandwidth_GBs
+softmax,v1_naive,1024x128,256,0.023,46.5,bandwidth_GBs
+softmax,v2_online,1024x128,256,0.017,60.2,bandwidth_GBs
+softmax,v1_naive,1024x512,256,0.025,170.7,bandwidth_GBs
+softmax,v2_online,1024x512,256,0.018,227.6,bandwidth_GBs
+softmax,v1_naive,1024x2048,256,0.059,282.5,bandwidth_GBs
+softmax,v2_online,1024x2048,256,0.061,273.1,bandwidth_GBs
+softmax,v1_naive,1024x4096,256,0.155,217.0,bandwidth_GBs
+softmax,v2_online,1024x4096,256,0.128,262.1,bandwidth_GBs
+gemm,naive,512,32,0.2744,0.9781 TFLOPS,
+gemm,register_tiled,512,BM128_BN128_BK8_TM8_TN8,0.1229,2.1845 TFLOPS,regtile_vs_cublas=34.2%
+gemm,cublas,512,N/A,0.0420,6.3938 TFLOPS,
+gemm,naive,1024,32,2.0122,1.0673 TFLOPS,
+gemm,register_tiled,1024,BM128_BN128_BK8_TM8_TN8,0.3584,5.9919 TFLOPS,regtile_vs_cublas=62.3%
+gemm,cublas,1024,N/A,0.2232,9.6200 TFLOPS,
+gemm,naive,2048,32,16.2632,1.0564 TFLOPS,
+gemm,register_tiled,2048,BM128_BN128_BK8_TM8_TN8,2.1125,8.1324 TFLOPS,regtile_vs_cublas=69.8%
+gemm,cublas,2048,N/A,1.4756,11.6428 TFLOPS,
+gemm,register_tiled,4096,BM128_BN128_BK8_TM8_TN8,17.7633,7.7372 TFLOPS,regtile_vs_cublas=89.8%
+gemm,cublas,4096,N/A,15.9519,8.6159 TFLOPS,

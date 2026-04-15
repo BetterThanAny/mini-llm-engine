@@ -10,6 +10,16 @@ set(CMAKE_CUDA_ARCHITECTURES 86)
 # Common compile options
 add_compile_options($<$<COMPILE_LANGUAGE:CUDA>:-O2>)
 
+set(CMAKE_CUDA_RUNTIME_LIBRARY Shared)
+
+# WSL2: real GPU driver lives in /usr/lib/wsl/lib/. apt's nvidia stub
+# libcuda.so shadows it. Force DT_RPATH + DT_NEEDED for the real driver.
+if(EXISTS "/usr/lib/wsl/lib/libcuda.so.1")
+    set(CMAKE_BUILD_RPATH "/usr/lib/wsl/lib")
+    add_link_options("LINKER:--disable-new-dtags")
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--no-as-needed -L/usr/lib/wsl/lib -lcuda -Wl,--as-needed")
+endif()
+
 find_package(CUDAToolkit REQUIRED)
 
 add_subdirectory(vector_add)
