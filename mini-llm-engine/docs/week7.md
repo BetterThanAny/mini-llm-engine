@@ -83,7 +83,7 @@ DEVICE=cuda MODEL_PATH=... TOKENIZER_PATH=... bash benchmarks/run_benchmark.sh
 
 ### Design
 
-For `N <= 8` independent sequences (VRAM constraint from `CLAUDE.md`).
+For `N <= 8` independent sequences (VRAM budget constraint).
 
 Current implementation: serialise over the batch dimension in `forward_gpu_batched` — each item runs through all 22 layers independently, with its own KV cache. This is architecturally correct and achieves near-linear throughput scaling (GPU is idle between items in the loop, but each forward pass is independently parallelised across heads and sequence positions).
 
@@ -185,7 +185,7 @@ A from-scratch LLM inference engine for TinyLlama-1.1B FP16 on a single RTX 3080
 4. **INT8 dequant** (per-row, grid-stride)
 5. embed lookup, add in-place, SiLU, mul (helper kernels)
 
-Meets the CLAUDE.md requirement: ≥ 2 hand-written CUDA kernels.
+Meets the project requirement: ≥ 2 hand-written CUDA kernels.
 
 ### Key design decisions
 

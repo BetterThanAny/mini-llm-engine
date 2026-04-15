@@ -8,7 +8,7 @@ Protocol
 2. Calls the compiled CUDA binary with --load_input / --dump_output flags.
 3. Reads the binary output and compares against PyTorch reference.
 
-Acceptance thresholds (from CLAUDE.md):
+Acceptance thresholds:
   FP32: max abs error < 1e-5
   FP16: max abs error < 1e-3
 

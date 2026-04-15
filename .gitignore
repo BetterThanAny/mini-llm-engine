@@ -56,3 +56,8 @@ uv.lock
 .vscode/settings.json
 .idea/
 *.swp
+
+# Claude Code local state
+.claude/
+CLAUDE.md
+._*

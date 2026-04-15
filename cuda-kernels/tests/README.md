@@ -14,4 +14,4 @@ python tests/test_correctness.py
 python tests/test_correctness.py --kernel rmsnorm --dtype fp16
 ```
 
-Acceptance: FP32 max_abs_err < 1e-5, FP16 max_abs_err < 1e-3 (per CLAUDE.md).
+Acceptance: FP32 max_abs_err < 1e-5, FP16 max_abs_err < 1e-3.
