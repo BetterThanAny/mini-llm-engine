@@ -4,6 +4,52 @@
 
 同仓库内还附带一个独立 `cuda-kernels/` 子项目,收录推理引擎里用到的 CUDA 算子 (vector_add / reduction / transpose / GEMM / RMSNorm / Softmax) 的独立实现与性能测试。
 
+## 架构
+
+推理流水线 — 每个 Transformer Block 重复 N 次 (TinyLlama N=22),KV Cache 跨步复用。
+
+```mermaid
+flowchart TB
+    subgraph IN[输入]
+        P([Prompt]) --> TOK[Tokenizer<br/>sentencepiece]
+        TOK --> EMB[Embedding<br/>查表]
+    end
+
+    subgraph BLK[Transformer Block x N]
+        direction TB
+        N1[RMSNorm] --> ATTN
+        subgraph ATTN[Attention 子层]
+            direction LR
+            QKV[QKV Proj<br/>GEMM] --> ROPE[RoPE]
+            ROPE --> FA[Flash Attention v1<br/>fused + causal + GQA]
+            FA --> OP[Out Proj<br/>GEMM]
+        end
+        ATTN --> RES1((+))
+        RES1 --> N2[RMSNorm]
+        N2 --> FFN[FFN / SwiGLU<br/>GEMM x3]
+        FFN --> RES2((+))
+        KV[(KV Cache)] <-.-> FA
+    end
+
+    subgraph OUT[输出]
+        NF[Final RMSNorm] --> LMH[LM Head<br/>GEMM / INT8 GEMV]
+        LMH --> SMP[Sampler<br/>temp / top-k / top-p]
+        SMP --> T([Next Token])
+    end
+
+    EMB --> BLK --> NF
+    T -. 自回归 .-> BLK
+
+    classDef kernel fill:#e8f5e9,stroke:#2e7d32,stroke-width:1.5px,color:#1b5e20
+    classDef cache fill:#fff3e0,stroke:#ef6c00,stroke-width:1.5px,color:#e65100
+    classDef io fill:#f3e5f5,stroke:#7b1fa2,stroke-width:1.5px,color:#4a148c
+    class N1,N2,NF,QKV,ROPE,FA,OP,FFN,LMH,SMP kernel
+    class KV cache
+    class P,T,TOK,EMB io
+```
+
+绿框为手写 CUDA kernel / cuBLAS 封装（独立实现清单见[模块归属](#模块归属)）,橙框为 KV Cache 跨步状态,紫框为 I/O 与 tokenizer。
+
 ## 性能 (RTX 3080 Laptop, sm_86)
 
 Prompt = 128 tokens,生成 = 128 tokens,FP16,warmup 3 次 + 测量 5 次取中位数。
