@@ -32,7 +32,7 @@ flowchart TB
     end
 
     subgraph OUT[输出]
-        NF[Final RMSNorm] --> LMH[LM Head<br/>GEMM / INT8 GEMV]
+        NF[Final RMSNorm] --> LMH[LM Head<br/>FP16 GEMM]
         LMH --> SMP[Sampler<br/>temp / top-k / top-p]
         SMP --> T([Next Token])
     end
@@ -48,7 +48,7 @@ flowchart TB
     class P,T,TOK,EMB io
 ```
 
-绿框为手写 CUDA kernel / cuBLAS 封装（独立实现清单见[模块归属](#模块归属)）,橙框为 KV Cache 跨步状态,紫框为 I/O 与 tokenizer。
+绿框为手写 CUDA kernel / cuBLAS 封装（独立实现清单见[模块归属](#模块归属)）,橙框为 KV Cache 跨步状态,紫框为 I/O 与 tokenizer。INT8 量化模式下,Attention/FFN 内部的 GEMM 走融合 INT8 GEMV kernel;Embedding、Final RMSNorm 与 LM Head 为保证精度始终保持 FP16。
 
 ## 性能 (RTX 3080 Laptop, sm_86)
 
