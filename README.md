@@ -109,7 +109,7 @@ cd ../tests && python test_correctness.py
 
 引擎各模块的独立实现 / 第三方库归属见 [`mini-llm-engine/docs/OWNERSHIP.md`](mini-llm-engine/docs/OWNERSHIP.md)。简述:
 
-- 独立实现: RMSNorm / Softmax / RoPE / INT8 GEMV kernel,KV Cache,Sampler,推理主循环
+- 独立实现: RMSNorm / Softmax / RoPE / Flash Attention v1 (fused, causal GQA) / INT8 GEMV kernel,KV Cache,Sampler,推理主循环
 - 第三方库: cuBLAS (GEMM),sentencepiece (tokenizer)
 - 参考实现: 模型加载逻辑参考 llama.cpp,模型结构硬编码 TinyLlama
 
