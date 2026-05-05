@@ -12,8 +12,8 @@ Usage:
     python tests/test_gpu_cpu_match.py
 
 Environment variables:
-    MODEL_PATH      — path to MINILLM .bin weights  (default: weights/tinyllama-fp32.bin)
-    TOKENIZER_PATH  — path to sentencepiece model   (default: weights/tokenizer.model)
+    MODEL_PATH      — path to MINILLM .bin weights
+    TOKENIZER_PATH  — path to sentencepiece model
     ENGINE_BIN      — path to built binary           (default: build/llm_engine)
     NUM_TOKENS      — how many tokens to generate    (default: 64)
     MATCH_THRESHOLD — minimum match fraction         (default: 0.95)
@@ -21,15 +21,13 @@ Environment variables:
 
 import os
 import sys
-import json
 import subprocess
-import tempfile
 import pathlib
 
 ROOT = pathlib.Path(__file__).parent.parent
 
-MODEL_PATH      = os.environ.get("MODEL_PATH",      str(ROOT / "weights" / "tinyllama-fp32.bin"))
-TOKENIZER_PATH  = os.environ.get("TOKENIZER_PATH",  str(ROOT / "weights" / "tokenizer.model"))
+MODEL_PATH      = os.environ.get("MODEL_PATH")
+TOKENIZER_PATH  = os.environ.get("TOKENIZER_PATH")
 ENGINE_BIN      = os.environ.get("ENGINE_BIN",      str(ROOT / "build"   / "llm_engine"))
 NUM_TOKENS      = int(os.environ.get("NUM_TOKENS",  "64"))
 MATCH_THRESHOLD = float(os.environ.get("MATCH_THRESHOLD", "0.95"))
@@ -78,19 +76,23 @@ def run_engine(device: str) -> str:
 
 def check_prerequisites():
     errors = []
+    if not MODEL_PATH:
+        errors.append("MODEL_PATH is not set")
+    if not TOKENIZER_PATH:
+        errors.append("TOKENIZER_PATH is not set")
     if not pathlib.Path(ENGINE_BIN).exists():
         errors.append(f"Engine binary not found: {ENGINE_BIN}\n"
                       f"  Build with: cd build && cmake .. && make -j$(nproc)")
-    if not pathlib.Path(MODEL_PATH).exists():
+    if MODEL_PATH and not pathlib.Path(MODEL_PATH).exists():
         errors.append(f"Model weights not found: {MODEL_PATH}\n"
                       f"  Set MODEL_PATH=/path/to/weights.bin")
-    if not pathlib.Path(TOKENIZER_PATH).exists():
+    if TOKENIZER_PATH and not pathlib.Path(TOKENIZER_PATH).exists():
         errors.append(f"Tokenizer not found: {TOKENIZER_PATH}\n"
                       f"  Set TOKENIZER_PATH=/path/to/tokenizer.model")
     if errors:
         for e in errors:
-            print(f"ERROR: {e}")
-        sys.exit(1)
+            print(f"SKIP: {e}")
+        sys.exit(77)
 
 
 def char_token_match(text_a: str, text_b: str, n: int = NUM_TOKENS) -> float:

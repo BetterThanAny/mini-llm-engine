@@ -19,8 +19,12 @@ Requirements: torch >= 2.0
 
 import sys
 import math
-import torch
-import torch.nn.functional as F
+
+try:
+    import torch
+except ModuleNotFoundError:
+    print("SKIP: PyTorch is not installed")
+    sys.exit(77)
 
 
 # ── Reference implementations ──────────────────────────────────────────────

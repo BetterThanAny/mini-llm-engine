@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <limits>
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
@@ -43,6 +44,31 @@ static int32_t read_i32(FILE* f) {
     if (fread(&v, 4, 1, f) != 1)
         throw std::runtime_error("read_i32: unexpected EOF");
     return v;
+}
+
+static void validate_kv_cache_capacity(const char* caller,
+                                       const KVCache& kv_cache,
+                                       int seq_len) {
+    if (seq_len <= 0) {
+        throw std::runtime_error(std::string(caller) +
+                                 ": seq_len must be positive, got " +
+                                 std::to_string(seq_len));
+    }
+    if (kv_cache.cur_len < 0 || kv_cache.max_seq_len < 0) {
+        throw std::runtime_error(std::string(caller) +
+                                 ": invalid KV cache state cur_len=" +
+                                 std::to_string(kv_cache.cur_len) +
+                                 " max_seq_len=" +
+                                 std::to_string(kv_cache.max_seq_len));
+    }
+    if (seq_len > kv_cache.max_seq_len - kv_cache.cur_len) {
+        throw std::runtime_error(std::string(caller) +
+                                 ": KV cache capacity exceeded: cur_len=" +
+                                 std::to_string(kv_cache.cur_len) +
+                                 " seq_len=" + std::to_string(seq_len) +
+                                 " max_seq_len=" +
+                                 std::to_string(kv_cache.max_seq_len));
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -98,19 +124,35 @@ ModelWeights load_weights(const std::string& path, const LlamaConfig& cfg) {
 
         // shape
         uint32_t ndim = read_u32(f);
-        if (ndim > 4)
-            throw std::runtime_error("load_weights: ndim > 4 for tensor " + name);
+        if (ndim == 0 || ndim > 4)
+            throw std::runtime_error("load_weights: ndim must be in [1, 4] for tensor " + name);
 
         int dims[4] = {1, 1, 1, 1};
         size_t numel = 1;
         for (uint32_t d = 0; d < ndim; ++d) {
             dims[d] = read_i32(f);
+            if (dims[d] <= 0) {
+                throw std::runtime_error(
+                    "load_weights: tensor " + name + " has non-positive dim[" +
+                    std::to_string(d) + "]=" + std::to_string(dims[d]));
+            }
+            if (numel > std::numeric_limits<size_t>::max() / static_cast<size_t>(dims[d])) {
+                throw std::runtime_error("load_weights: tensor " + name + " shape is too large");
+            }
             numel  *= static_cast<size_t>(dims[d]);
         }
 
         // dtype — always load as FP32 for CPU forward pass (W4)
         uint32_t dtype_code = read_u32(f);
+        if (dtype_code != DTYPE_FP32 && dtype_code != DTYPE_FP16) {
+            throw std::runtime_error(
+                "load_weights: tensor " + name + " has unsupported dtype code " +
+                std::to_string(dtype_code) + " (expected 0=fp32 or 1=fp16)");
+        }
         size_t   elem_size  = (dtype_code == DTYPE_FP16) ? 2 : 4;
+        if (numel > std::numeric_limits<size_t>::max() / elem_size) {
+            throw std::runtime_error("load_weights: tensor " + name + " byte size is too large");
+        }
         size_t   byte_count = numel * elem_size;
 
         // Allocate as FP32 CPU tensor
@@ -269,6 +311,7 @@ void free_weights(ModelWeights& w) {
 void forward_cpu(const ModelWeights& w, const LlamaConfig& cfg,
                  KVCache& kv_cache, const int* tokens, int seq_len,
                  int pos_offset, float* logits_out) {
+    validate_kv_cache_capacity("forward_cpu", kv_cache, seq_len);
 
     const int H  = cfg.hidden_size;           // 2048
     const int NH = cfg.num_heads;             // 32
@@ -525,6 +568,8 @@ void forward_gpu(const ModelWeights& w, const LlamaConfig& cfg,
                  KVCache& kv_cache, const int* tokens, int seq_len,
                  int pos_offset, float* logits_out)
 {
+    validate_kv_cache_capacity("forward_gpu", kv_cache, seq_len);
+
     const int H   = cfg.hidden_size;    // 2048
     const int NH  = cfg.num_heads;      // 32
     const int KVH = cfg.num_kv_heads;   // 4
@@ -710,6 +755,8 @@ void forward_gpu_int8(const Int8ModelWeights& w, const LlamaConfig& cfg,
                       KVCache& kv_cache, const int* tokens, int seq_len,
                       int pos_offset, float* logits_out)
 {
+    validate_kv_cache_capacity("forward_gpu_int8", kv_cache, seq_len);
+
     const int H   = cfg.hidden_size;
     const int NH  = cfg.num_heads;
     const int KVH = cfg.num_kv_heads;
